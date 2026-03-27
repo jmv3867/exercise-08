@@ -1,0 +1,363 @@
+---
+title: "exercise-08"
+author: "Janny Mauricio Velasco Alban"
+format: html
+editor: visual
+---
+
+## Quarto
+
+Quarto enables you to weave together content and executable code into a finished document. To learn more about Quarto see <https://quarto.org>.
+
+## Exercise 08
+
+First step, library imports
+
+```{r}
+
+#Libraries
+
+library(tidyverse)
+library(skimr)
+library(broom)
+library(manipulate)
+library(patchwork)
+library(infer)
+library(lmodel2)
+library(sjPlot)
+
+```
+
+# Step 1.
+
+## Let's start with the data
+
+```{r}
+
+f<- "https://raw.githubusercontent.com/difiore/ada-datasets/main/Street_et_al_2017.csv"
+
+d<- read_csv(f, col_names = TRUE)
+
+d
+
+names(d)
+
+# quick exploratory data analysis
+
+skim(d)
+
+summary(d)
+
+```
+
+# Step 2.
+
+## Plots
+
+```{r}
+# From the dataset we will have to plot 
+
+p<- c("Group_size", "Longevity", "Weaning", "Repro_lifespan")
+
+d_plot<- d%>%
+  select(ECV, all_of(p)) %>%
+  filter(!is.na(ECV)) %>%
+  pivot_longer(cols = all_of(p),
+  names_to = "Predictor",
+  values_to = "Value") %>%
+  filter(!is.na(Value)) %>%
+  mutate(Predictor = case_match(Predictor,
+      "Group_size"     ~ "Group Size",
+      "Longevity"      ~ "Longevity",
+      "Weaning"        ~ "Weaning",          
+      "Repro_lifespan" ~ "Reproductive Lifespan"
+    ), Predictor = factor(Predictor, levels = c(
+      "Group Size",
+      "Longevity",
+      "Weaning",
+      "Reproductive Lifespan"
+    ))
+  )
+    
+#Lets plot the values
+
+p_plot <- ggplot(d_plot, aes(x = Value, y = ECV))+
+  geom_point(alpha = 7.5, size = 2.2)+
+  geom_smooth(method = "lm", se = TRUE, color = "grey25", fill = "grey80", linewidth = 0.9, alpha = 0.25 ) +
+  facet_wrap(~ Predictor, scales = "free_x", ncol = 2)+
+  scale_x_continuous(name = "Predictor Value")+
+  scale_y_continuous(name = "Brain Size ~ ECV (cc)")+
+  theme_minimal(base_size = 12)+
+  theme(
+    plot.title       = element_text(face = "bold", size = 14, hjust = 0.5),
+    plot.subtitle    = element_text(size = 10, hjust = 0.5, color = "grey40"),
+    legend.position  = "bottom",
+    legend.title     = element_text(face = "bold"),
+    strip.text       = element_text(face = "bold", size = 10),
+    strip.background = element_rect(fill = "grey93", color = NA),
+    panel.grid.minor = element_blank()
+  )+
+  labs(
+    title    = "Brain Size (ECV) as a Function of Social & Life-History Variables",
+    subtitle = "Street et al. (2017)  |  lm trend with 95% CI"
+  )
+
+p_plot
+```
+
+# Step 3
+
+## Derive by hand the ordinary least squares regression coefficients beta0 and beta 1 for ECV as a function of social group size
+
+```{r}
+
+ols <- d %>%
+  filter(!is.na(ECV), !is.na(Group_size))
+
+beta1 <- cov(ols$Group_size, ols$ECV)/ var(ols$Group_size)
+beta0 <- mean(ols$ECV) - beta1*mean(ols$Group_size)
+
+beta1
+beta0
+```
+
+# Step 4.
+
+## Confirmation
+
+```{r}
+#Confirm the values using lm()
+
+m <- lm(ECV ~ Group_size, data = ols)
+m
+beta1
+beta0
+#The results concide with the beta1 and beta0 values
+```
+
+# Step 5
+
+## Repeat the analysis above for three different major radiations of primates
+
+```{r}
+# We are going to repeat the exercise with three major primates: “catarrhines”, “platyrrhines”, and “strepsirhines"
+
+groups <- unique(ols$Taxonomic_group)
+
+for (g in groups) {
+  d_g <- ols %>%
+    filter(Taxonomic_group == g)
+  m_g <- lm(ECV ~ Group_size, data = d_g)
+  cf<- coef(m_g)
+  
+}  
+
+
+#Regression lines for specific groups
+tax_colors <- c(
+  Catarrhini   = "#E69F00",
+  Platyrrhini  = "#56B4E9",
+  Strepsirhini = "#009E73"
+)
+p_groups <- ggplot(ols, aes(x = Group_size, y = ECV, color = Taxonomic_group)
+  )+
+  geom_point(alpha = 0.75, size = 2.2)+
+  geom_smooth(method = "lm", se = TRUE, aes(fill = Taxonomic_group),
+              linewidth = 0.9, alpha = 0.15) +
+  scale_color_manual(values = tax_colors, name = "Taxonomic Group") +
+  scale_fill_manual(values  = tax_colors, name = "Taxonomic Group") +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title      = element_text(face = "bold", size = 13, hjust = 0.5),
+    legend.position = "bottom",
+    legend.title    = element_text(face = "bold"),
+    panel.grid.minor = element_blank()
+  ) +
+  labs(
+    title = "ECV ~ Group Size by Taxonomic Group",
+    x     = "Social Group Size",
+    y     = "Brain Size – ECV (cc)"
+  )
+ 
+p_groups 
+```
+
+# Step 6.
+
+## For your first regression of ECV on social group size, calculate the standard error for the slope coefficient, the 95% CI, and the *p* value associated with this coefficient by hand. Also extract this same information from the results of running the `lm()` function.
+
+```{r}
+
+n<- nrow(ols)
+#degrees of freedom df
+df<- n-2
+n
+df
+
+#Values and residuals
+ECV_hat <- beta0 + beta1*ols$Group_size
+residuals <- ols$ECV - ECV_hat
+ECV_hat
+residuals
+#SE of the regression (residual)
+
+s <- sqrt(sum(residuals^2)/df)
+s
+
+#SE beta1
+
+se_beta1 <- s / sqrt(sum((ols$Group_size - mean(ols$Group_size))^2))
+
+se_beta1
+
+#t-statistic of beta1
+
+t_stat <- beta1/se_beta1
+t_stat
+
+# Two tailed p value
+
+p_value <- 2 * pt(abs(t_stat), df = df, lower.tail = FALSE)
+p_value
+
+# 95% Confidence Intervals for beta1
+
+t_crit <- qt(0.975, df = df)
+CI_low <- beta1 - t_crit * se_beta1
+CI_up <- beta1 + t_crit * se_beta1
+
+t_crit
+CI_low
+CI_up
+
+#lm summary
+
+m_summary <- summary(m)
+SE_lm <- coef(m_summary)["Group_size", "Std. Error"]
+t_lm       <- coef(m_summary)["Group_size", "t value"]
+p_lm       <- coef(m_summary)["Group_size", "Pr(>|t|)"]
+CI_lm      <- confint(m, level = 0.95)["Group_size", ]
+
+m_summary
+SE_lm
+t_lm
+p_lm
+CI_lm
+```
+
+# Step 7.
+
+## 1000 permutations for beta1
+
+```{r}
+
+#Use a permutation approach with 1000 permutations to generate a null sampling distribution for the slope coefficient.
+
+set.seed(42)
+n_perm <- 1000
+perm_slopes <- numeric(n_perm)
+
+for (i in seq_len(n_perm)) {
+  y_perm <- sample(ols$ECV)
+  perm_slopes[i] <- cov(ols$Group_size, y_perm)/var(ols$Group_size)
+}
+
+#Quantile based p-value
+
+p_perm_quantile <- mean(abs(perm_slopes) >= abs(beta1))
+p_perm_quantile # The answer must be "0"
+
+#p-value using SD of permutation distribution
+
+SE_perm <- sd(perm_slopes)
+t_perm <- beta1 / SE_perm
+p_perm_sd <- 2*pt(abs(t_perm), df = df, lower.tail = FALSE)
+
+SE_perm
+t_perm
+p_perm_sd
+
+#Now, lets plot the null distribution
+
+perm_df <- tibble(slope = perm_slopes)
+
+plot_perm <- ggplot(perm_df, aes(x = slope)) + 
+  geom_histogram(bins = 50, fill = "steelblue", color = "white", alpha = 0.8) +
+  geom_vline(xintercept =  beta1, color = "red",  linewidth = 1.2, linetype = "dashed") +
+  geom_vline(xintercept = -beta1, color = "red",  linewidth = 1.2, linetype = "dashed") +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title   = element_text(face = "bold", size = 13, hjust = 0.5),
+    plot.subtitle = element_text(size = 10, hjust = 0.5, color = "grey40")
+  ) +
+  labs(
+    title    = "Permutation Null Distribution of Slope (β1)",
+    subtitle = "Red dashed lines = observed ±β1",
+    x        = "Permuted Slope Coefficient",
+    y        = "Count"
+  )
+
+plot_perm
+```
+
+# Step 8.
+
+## Bootstrapping to generate a 95% CI for your estimate of the slope coefficient using both the quantile method and the theory-based method 
+
+```{r}
+
+set.seed(42)
+n_boot        <- 1000
+boot_slopes   <- numeric(n_boot)
+ 
+for (i in seq_len(n_boot)) {
+  idx             <- sample(seq_len(n), size = n, replace = TRUE)   
+  x_boot          <- ols$Group_size[idx]
+  y_boot          <- ols$ECV[idx]
+  boot_slopes[i]  <- cov(x_boot, y_boot) / var(x_boot)
+}
+ 
+# quantile-based 95% CI 
+
+CI_boot_quantile <- quantile(boot_slopes, probs = c(0.025, 0.975))
+ 
+# CI using SD of bootstrap distribution
+
+SE_boot <- sd(boot_slopes)
+CI_boot_sd <- c(
+  beta1 - qt(0.975, df = df) * SE_boot,
+  beta1 + qt(0.975, df = df) * SE_boot
+)
+ 
+CI_boot_quantile
+SE_boot
+CI_boot_sd #Yes the obtained values shows the coefficients were different than "0"
+ 
+
+# Plot bootstrap sampling distribution
+boot_df <- tibble(slope = boot_slopes)
+
+boot_df
+ 
+plot_boot <- ggplot(boot_df, aes(x = slope)) +
+  geom_histogram(bins = 50, fill = "#009E73", color = "white", alpha = 0.8) +
+  geom_vline(xintercept = CI_boot_quantile,
+             color = "red", linewidth = 1.1, linetype = "dashed") +
+  geom_vline(xintercept = beta1,
+             color = "black", linewidth = 1.2) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title    = element_text(face = "bold", size = 13, hjust = 0.5),
+    plot.subtitle = element_text(size = 10, hjust = 0.5, color = "grey40")
+  ) +
+  labs(
+    title    = "Bootstrap Sampling Distribution of Slope (β1)",
+    subtitle = "Black line = observed β1  |  Red dashed = 95% CI (quantile method)",
+    x        = "Bootstrapped Slope Coefficient",
+    y        = "Count"
+  )
+ 
+
+plot_boot
+
+```
